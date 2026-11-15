@@ -17,6 +17,12 @@ jobs:
         with:
           repository: 'duartesantos8/opengym'
 
+      - name: Get latest release version from original repo
+        id: get_version
+        run: |
+          LATEST_TAG=$(curl -sL https://api.github.com/repos/duartesantos8/opengym/releases/latest | jq -r '.tag_name')
+          echo "VERSION=$LATEST_TAG" >> $GITHUB_ENV
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -30,4 +36,6 @@ jobs:
           context: ./api
           target: coach
           push: true
-          tags: ghcr.io/dein-github-name/opengym-api-coach:latest
+          tags: |
+            ghcr.io/cesc1986/opengym-autobuild:latest
+            ghcr.io/cesc1986/opengym-autobuild:${{ env.VERSION }}
