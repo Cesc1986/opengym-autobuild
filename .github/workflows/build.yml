@@ -2,7 +2,7 @@ name: Build openGym AI Coach
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Baut jede Nacht um 3:00 Uhr
+    - cron: '0 3 * * *' # Prüft jede Nacht um 3:00 Uhr auf neue Releases
   workflow_dispatch: # Erlaubt manuelles Starten per Klick
 
 jobs:
@@ -12,18 +12,34 @@ jobs:
       packages: write
       contents: read
     steps:
-      - name: Checkout Original openGym Repository
-        uses: actions/checkout@v4
-        with:
-          repository: 'duartesantos8/opengym'
-
       - name: Get latest release version from original repo
         id: get_version
         run: |
           LATEST_TAG=$(curl -sL https://api.github.com/repos/duartesantos8/opengym/releases/latest | jq -r '.tag_name')
           echo "VERSION=$LATEST_TAG" >> $GITHUB_ENV
 
+      - name: Check if image tag already exists in GHCR
+        id: check_ghcr
+        run: |
+          TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:cesc1986/opengym-autobuild:pull" | jq -r '.token')
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/cesc1986/opengym-autobuild/manifests/${{ env.VERSION }}")
+          if [ "$STATUS" -eq 200 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Version ${{ env.VERSION }} existiert bereits in GHCR. Build wird übersprungen."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Neue Version ${{ env.VERSION }} gefunden. Starte Build..."
+          fi
+
+      - name: Checkout Original openGym Repository
+        if: steps.check_ghcr.outputs.exists == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: 'duartesantos8/opengym'
+          ref: ${{ env.VERSION }}
+
       - name: Login to GitHub Container Registry
+        if: steps.check_ghcr.outputs.exists == 'false'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -31,11 +47,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API Coach
+        if: steps.check_ghcr.outputs.exists == 'false'
         uses: docker/build-push-action@v5
         with:
           context: ./api
           target: coach
           push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/cesc1986/opengym-autobuild
           tags: |
             ghcr.io/cesc1986/opengym-autobuild:latest
             ghcr.io/cesc1986/opengym-autobuild:${{ env.VERSION }}
